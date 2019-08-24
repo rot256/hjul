@@ -6,6 +6,7 @@ edition = "2018"
 license = "MIT"
 homepage = "https://github.com/rot256/hjul"
 keywords = ["timer", "timer wheel", "callback"]
+description = "Simple and efficient async. timer abstraction on top of `mio`"
 
 [dependencies]
 mio = "0.6.19"
