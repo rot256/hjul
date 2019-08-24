@@ -1,144 +1,96 @@
-use mio::{Events, Poll, PollOpt, Ready, Token};
-use mio_extras::timer;
+#![feature(test)]
 
-use spin::Mutex;
-use std::mem;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Weak};
-use std::thread;
-use std::time::Duration;
+extern crate test;
 
-const TIMER: Token = Token(2);
+mod timers;
 
-type Callback = Box<dyn Fn() -> () + Sync + Send + 'static>;
-type State = Weak<TimerInner>;
-
-struct TimerInner {
-    pending: AtomicBool,
-    runner: Arc<RunnerInner>,
-    timeout: Mutex<Option<timer::Timeout>>,
-    callback: Callback,
-}
-
-type RunnerInner = Mutex<timer::Timer<State>>;
-
-pub struct Timer(Arc<TimerInner>);
-pub struct Runner(Arc<RunnerInner>);
-
-impl Runner {
-    pub fn new(tick: Duration, slots: usize) -> Runner {
-        // create timer whell
-        let builder: timer::Builder = Default::default();
-        let builder = timer::Builder::tick_duration(builder, tick);
-        let builder = timer::Builder::num_slots(builder, slots);
-        let timer = timer::Builder::build(builder);
-
-        // create Poll
-        let poll = Poll::new().unwrap();
-        poll.register(&timer, TIMER, Ready::readable(), PollOpt::edge())
-            .unwrap();
-
-        // allow timer to be shared by threads
-        let inner = Arc::new(Mutex::new(timer));
-
-        // start callback thread
-        {
-            let timer = inner.clone();
-            let mut events = Events::with_capacity(1024);
-            thread::spawn(move || loop {
-                poll.poll(&mut events, None).unwrap();
-                for event in &events {
-                    match event.token() {
-                        TIMER => {
-                            if let Some(weak) = timer.lock().poll() {
-                                let weak: Weak<TimerInner> = weak;
-                                match weak.upgrade() {
-                                    Some(timer) => {
-                                        if timer.pending.swap(false, Ordering::SeqCst) {
-                                            (timer.callback)()
-                                        }
-                                    }
-                                    None => (),
-                                }
-                            }
-                        }
-                        _ => println!("awkward"),
-                    }
-                }
-            });
-        }
-
-        // return runner handle
-        Runner(inner)
-    }
-
-    pub fn timer(self, callback: Callback) -> Timer {
-        Timer(Arc::new(TimerInner {
-            callback,
-            pending: AtomicBool::new(false),
-            runner: self.0.clone(),
-            timeout: Mutex::new(None),
-        }))
-    }
-}
-
-impl Timer {
-    fn stop(&self) {
-        let inner = &self.0;
-
-        if inner.pending.swap(false, Ordering::Acquire) {
-            if let Some(tm) = mem::replace(&mut *inner.timeout.lock(), None) {
-                inner.runner.lock().cancel_timeout(&tm);
-            }
-        }
-    }
-
-    fn reset(&self, duration: Duration) {
-        let inner = &self.0;
-
-        inner.pending.store(true, Ordering::SeqCst);
-        let mut timeout = inner.timeout.lock();
-        let mut timer = inner.runner.lock();
-        let new = timer.set_timeout(duration, Arc::downgrade(&self.0));
-        if let Some(tm) = mem::replace(&mut *timeout, Some(new)) {
-            timer.cancel_timeout(&tm);
-        }
-    }
-
-    fn start(&self, duration: Duration) {
-        let inner = &self.0;
-
-        if !inner.pending.swap(true, Ordering::SeqCst) {
-            let mut timeout = inner.timeout.lock();
-            if timeout.is_some() {
-                return;
-            }
-            let mut timer = inner.runner.lock();
-            *timeout = Some(timer.set_timeout(duration, Arc::downgrade(&self.0)));
-        }
-    }
-}
+pub use timers::{Runner, Timer};
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    use std::thread;
+    use std::time::{Duration, Instant};
+    use test::Bencher;
 
+    /* This test can theoretically fail -- on a VERY slow machine.
+     */
     #[test]
-    fn it_works() {
-        let runner = Runner::new(Duration::from_millis(100), 10 * 60 * 4);
+    fn test_accuracy() {
+        let capacity = 100_000;
+        let accuracy = Duration::from_millis(100);
+        let horrison = Duration::from_millis(10_000);
+        let cogs = (horrison.as_nanos() / accuracy.as_nanos()) as usize;
+        let runner = Runner::new(accuracy, cogs, capacity);
 
-        let t = Arc::new(Mutex::new(5));
-        let timer = {
-            let t = t.clone();
-            runner.timer(Box::new(move || {
-                *t.lock() = 5;
-                println!("run")
-            }))
-        };
+        let tests = vec![
+            Duration::from_millis(100),
+            Duration::from_millis(200),
+            Duration::from_millis(250),
+            Duration::from_millis(200),
+            Duration::from_millis(400),
+            Duration::from_millis(600),
+            Duration::from_millis(700),
+            Duration::from_millis(100),
+            Duration::from_millis(500),
+            Duration::from_millis(500),
+        ];
 
-        timer.reset(Duration::from_millis(200));
-        timer.stop();
+        // create and start the timers
+        let mut checks: Vec<Arc<AtomicBool>> = vec![];
+        let mut timers: Vec<Timer> = vec![];
+        for _ in 0..(capacity / tests.len()) {
+            for &dur in &tests {
+                let fired = Arc::new(AtomicBool::new(false));
+                let fcopy = fired.clone();
+                let start = Instant::now();
+                let timer = runner.timer(Box::new(move || {
+                    let delta = Instant::now() - start;
+                    assert!(
+                        delta >= dur - accuracy,
+                        "at least (duration - accuracy) time should passed"
+                    );
+                    assert!(
+                        delta + accuracy >= dur,
+                        "no more than (duration + accuracy) time should pass"
+                    );
+                    fcopy.store(true, Ordering::SeqCst);
+                }));
+                timer.reset(dur);
+                timers.push(timer);
+                checks.push(fired);
+            }
+        }
 
-        thread::sleep(Duration::from_millis(10_000));
+        // wait for timers to fire
+        let mut longest = tests[0];
+        for &dur in &tests {
+            if dur > longest {
+                longest = dur;
+            }
+            assert!(dur < horrison);
+        }
+        thread::sleep(2 * longest);
+
+        // check that every timer fired
+        for f in checks {
+            assert!(f.load(Ordering::Acquire));
+        }
+    }
+
+    #[bench]
+    fn bench_reset(b: &mut Bencher) {
+        let runner = Runner::new(Duration::from_millis(100), 100, 10);
+        let timer = runner.timer(Box::new(|| {}));
+        b.iter(|| timer.reset(Duration::from_millis(1000)));
+    }
+
+    #[bench]
+    fn bench_start(b: &mut Bencher) {
+        let runner = Runner::new(Duration::from_millis(100), 100, 10);
+        let timer = runner.timer(Box::new(|| {}));
+        b.iter(|| timer.start(Duration::from_millis(1000)));
     }
 }
