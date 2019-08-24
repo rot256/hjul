@@ -3,6 +3,9 @@ name = "hjul"
 version = "0.1.0"
 authors = ["Mathias Hall-Andersen <mathias@hall-andersen.dk>"]
 edition = "2018"
+license = "MIT"
+homepage = "https://github.com/rot256/hjul"
+keywords = ["timer", "timer wheel", "callback"]
 
 [dependencies]
 mio = "0.6.19"

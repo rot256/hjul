@@ -1,3 +1,4 @@
+#![crate_name = "hjul"]
 #![feature(test)]
 
 extern crate test;
@@ -46,7 +47,7 @@ mod tests {
                 let fired = Arc::new(AtomicBool::new(false));
                 let fcopy = fired.clone();
                 let start = Instant::now();
-                let timer = runner.timer(Box::new(move || {
+                let timer = runner.timer(move || {
                     let delta = Instant::now() - start;
                     assert!(
                         delta >= dur - accuracy,
@@ -57,7 +58,7 @@ mod tests {
                         "no more than (duration + accuracy) time should pass"
                     );
                     fcopy.store(true, Ordering::SeqCst);
-                }));
+                });
                 timer.reset(dur);
                 timers.push(timer);
                 checks.push(fired);

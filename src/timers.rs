@@ -11,14 +11,13 @@ use std::time::Duration;
 
 const TIMER: Token = Token(1);
 
-type Callback = Box<dyn Fn() -> () + Sync + Send + 'static>;
 type State = Weak<TimerInner>;
 
 struct TimerInner {
     timer: Arc<Mutex<timer::Timer<State>>>,
     pending: AtomicBool,
     timeout: Mutex<Option<timer::Timeout>>,
-    callback: Callback,
+    callback: Box<dyn Fn() + Send + Sync>,
 }
 
 pub struct Runner {
@@ -31,6 +30,27 @@ pub struct Runner {
 pub struct Timer(Arc<TimerInner>);
 
 impl Runner {
+    /// Creates a new Runner, which executes the associated timer callbacks
+    ///
+    /// # Arguments
+    ///
+    /// * `tick`: duration of a single tick. This determines the accuracy of the underlaying timer wheel
+    /// * `slots`: Number of slots in the timer wheel.
+    /// * `capacity`: Maximum number of timers which can be allocated for the wheel
+    ///
+    /// # Note
+    ///
+    /// The longest possible duration of any timer is `tick` * `slots`
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use hjul::Runner;
+    /// use std::time::Duration;
+    ///
+    /// // allows 1024 timers, with duration up to 10s and 100ms accuracy
+    /// let runner = Runner::new(Duration::from_millis(100), 100, 1024);
+    /// ```
     pub fn new(tick: Duration, slots: usize, capacity: usize) -> Runner {
         // create timer whell
         let builder: timer::Builder = Default::default();
@@ -86,9 +106,33 @@ impl Runner {
         }
     }
 
-    pub fn timer(&self, callback: Callback) -> Timer {
+    /// Allocate a new (stopped) timer and associate it with the callback
+    ///
+    /// # Arguments
+    ///
+    /// * `callback`: Callback to execute whenever the timer fires (possible repeatedly, if reset).
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use hjul::Runner;
+    /// # use std::thread;
+    /// # use std::time::Duration;
+    /// # let runner = Runner::new(Duration::from_millis(100), 100, 1024);
+    /// let timer = runner.timer(|| println!("fired"));
+    ///
+    /// // start the timer
+    /// timer.reset(Duration::from_millis(100));
+    ///
+    /// // wait for timer to fire
+    /// thread::sleep(Duration::from_millis(1000));
+    /// ```
+    pub fn timer<F>(&self, callback: F) -> Timer
+    where
+        F: 'static + Fn() + Send + Sync,
+    {
         Timer(Arc::new(TimerInner {
-            callback,
+            callback: Box::new(callback),
             pending: AtomicBool::new(false),
             timer: self.timer.clone(),
             timeout: Mutex::new(None),
@@ -101,7 +145,7 @@ impl Drop for Runner {
         // mark the runner as stopped
         self.running.store(false, Ordering::SeqCst);
 
-        // create an event for mio
+        // create an event for mio, causing the callback thread to be scheduled
         self.timer
             .lock()
             .set_timeout(Duration::from_millis(0), Weak::new());
@@ -124,10 +168,55 @@ impl TimerInner {
 }
 
 impl Timer {
+    /// Stop the timer (preventing execution of the callback in the future)
+    ///
+    /// # Note
+    ///
+    /// Another way to stop a timer is to drop every clone of the timer.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use hjul::Runner;
+    /// # use std::thread;
+    /// # use std::time::Duration;
+    /// # let runner = Runner::new(Duration::from_millis(100), 100, 1024);
+    /// let timer = runner.timer(|| assert!(false));
+    /// timer.reset(Duration::from_millis(200));
+    /// timer.stop();
+    ///
+    /// // callback is never executed
+    /// thread::sleep(Duration::from_millis(500));
+    /// ```
     pub fn stop(&self) {
         self.0.stop()
     }
 
+    /// Restart the timer, regardless of whether the timer is running or not.
+    /// e.g. repeatably calling .reset(1 sec) will cause the timer to never fire.
+    ///
+    /// # Arguments
+    ///
+    /// * `duration`: duration until the callback should execute
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use hjul::Runner;
+    /// # use std::thread;
+    /// # use std::time::Duration;
+    /// # let runner = Runner::new(Duration::from_millis(100), 100, 1024);
+    /// let timer = runner.timer(|| assert!(false));
+    ///
+    /// // the timer never fires
+    /// let dur = Duration::from_millis(200);
+    /// for _ in 0..5 {
+    ///     timer.reset(dur);
+    ///     thread::sleep(dur / 2);
+    /// }
+    ///
+    /// // timer is dropped and cancelled
+    /// ```
     pub fn reset(&self, duration: Duration) {
         let inner = &self.0;
 
@@ -140,6 +229,29 @@ impl Timer {
         }
     }
 
+    /// Start the timer, but only if the timer is not already pending
+    /// e.g. repeatably calling .start(1 sec), the timer will fire ~ once every second
+    ///
+    /// # Arguments
+    ///
+    /// * `duration`: duration until the callback should execute
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use hjul::Runner;
+    /// # use std::thread;
+    /// # use std::time::Duration;
+    /// # let runner = Runner::new(Duration::from_millis(100), 100, 1024);
+    /// let timer = runner.timer(|| println!("fired"));
+    ///
+    /// // this timer will fire twice
+    /// let dur = Duration::from_millis(200);
+    /// for _ in 0..5 {
+    ///     timer.start(dur);
+    ///     thread::sleep(dur / 2);
+    /// }
+    /// ```
     pub fn start(&self, duration: Duration) {
         // optimistic check for pending
         let inner = &self.0;
@@ -149,10 +261,10 @@ impl Timer {
 
         // take lock and set if not pending
         let mut timeout = inner.timeout.lock();
-        if timeout.is_some() {
+        let mut timer = inner.timer.lock();
+        if inner.pending.load(Ordering::Acquire) {
             return;
         }
-        let mut timer = inner.timer.lock();
         *timeout = Some(timer.set_timeout(duration, Arc::downgrade(&self.0)));
         inner.pending.store(true, Ordering::SeqCst);
     }
