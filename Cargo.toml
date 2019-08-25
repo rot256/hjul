@@ -1,12 +1,17 @@
 [package]
 name = "hjul"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Mathias Hall-Andersen <mathias@hall-andersen.dk>"]
 edition = "2018"
 license = "MIT"
 homepage = "https://github.com/rot256/hjul"
 keywords = ["timer", "wheel", "mio-extra", "mio", "callback"]
-description = "Simple and efficient async. timer abstraction on top of `mio`"
+description = """
+Simple and efficient timer abstraction on top of `mio-extra`.
+Every timer is associated with a callback which is executed whenever the timer expires,
+timers can be stopped and reset, in which case the callback might be executed multiple times.
+The primary intended application is one in which timers have a bounded maximum duration (e.g. at most 10 minutes) and have to be cancelled and restarted very often.
+"""
 
 [dependencies]
 mio = "0.6.19"

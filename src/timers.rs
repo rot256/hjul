@@ -230,7 +230,7 @@ impl Timer {
     }
 
     /// Start the timer, but only if the timer is not already pending
-    /// e.g. repeatably calling .start(1 sec), the timer will fire ~ once every second
+    /// e.g. if repeatably calling .start(1 sec), the timer will fire ~ once every second
     ///
     /// # Arguments
     ///
@@ -251,6 +251,8 @@ impl Timer {
     ///     timer.start(dur);
     ///     thread::sleep(dur / 2);
     /// }
+    ///
+    /// // timer is dropped and cancelled
     /// ```
     pub fn start(&self, duration: Duration) {
         // optimistic check for pending
