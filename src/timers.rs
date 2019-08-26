@@ -3,6 +3,7 @@ use mio_extras::timer;
 
 use spin::Mutex;
 
+use std::fmt;
 use std::mem;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Weak};
@@ -20,14 +21,40 @@ struct TimerInner {
     callback: Box<dyn Fn() + Send + Sync>,
 }
 
+impl fmt::Debug for TimerInner {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Timer {{ pending = {} }} ",
+            self.pending.load(Ordering::Acquire)
+        )
+    }
+}
+
 pub struct Runner {
     timer: Arc<Mutex<timer::Timer<State>>>,
     handle: Option<thread::JoinHandle<()>>,
     running: Arc<AtomicBool>,
 }
 
+impl fmt::Debug for Runner {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Runner {{ running = {} }} ",
+            self.running.load(Ordering::Acquire)
+        )
+    }
+}
+
 #[derive(Clone)]
 pub struct Timer(Arc<TimerInner>);
+
+impl fmt::Debug for Timer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
 
 impl Runner {
     /// Creates a new Runner, which executes the associated timer callbacks
@@ -236,6 +263,11 @@ impl Timer {
     ///
     /// * `duration`: duration until the callback should execute
     ///
+    /// # Returns
+    ///
+    /// A bool indicating whether the timer was started (true)
+    /// or already running (false).
+    ///
     /// # Example
     ///
     /// ```
@@ -254,21 +286,22 @@ impl Timer {
     ///
     /// // timer is dropped and cancelled
     /// ```
-    pub fn start(&self, duration: Duration) {
+    pub fn start(&self, duration: Duration) -> bool {
         // optimistic check for pending
         let inner = &self.0;
         if inner.pending.load(Ordering::Acquire) {
-            return;
+            return false;
         }
 
         // take lock and set if not pending
         let mut timeout = inner.timeout.lock();
         let mut timer = inner.timer.lock();
         if inner.pending.load(Ordering::Acquire) {
-            return;
+            return false;
         }
         *timeout = Some(timer.set_timeout(duration, Arc::downgrade(&self.0)));
         inner.pending.store(true, Ordering::SeqCst);
+        true
     }
 }
 

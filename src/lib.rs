@@ -51,7 +51,7 @@ mod tests {
                     let delta = Instant::now() - start;
                     assert!(
                         delta >= dur - accuracy,
-                        "at least (duration - accuracy) time should passed"
+                        "at least (duration - accuracy) time should pass"
                     );
                     assert!(
                         delta + accuracy >= dur,
