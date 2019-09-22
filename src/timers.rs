@@ -192,6 +192,11 @@ impl TimerInner {
             }
         }
     }
+
+    fn fire(&self) {
+        self.stop();
+        (self.callback)()
+    }
 }
 
 impl Timer {
@@ -302,6 +307,33 @@ impl Timer {
         *timeout = Some(timer.set_timeout(duration, Arc::downgrade(&self.0)));
         inner.pending.store(true, Ordering::SeqCst);
         true
+    }
+
+    /// Manually cause the timer to fire immediately.
+    /// This cancels any pending timeout (equivalent to calling .stop())
+    /// before executing the callback.
+    ///
+    /// # Note
+    ///
+    /// The callback is run in the calling thread
+    /// as oppose to being run by the thread in the associated `Runner` instance.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use hjul::Runner;
+    /// # use std::thread;
+    /// # use std::time::Duration;
+    /// # let runner = Runner::new(Duration::from_millis(100), 100, 1024);
+    /// let timer = runner.timer(|| println!("fired"));
+    ///
+    /// timer.start(Duration::from_millis(200));
+    /// timer.fire();
+    ///
+    /// // timer is fired immediately, not after 200ms.
+    /// ```
+    pub fn fire(&self) {
+        self.0.fire();
     }
 }
 
