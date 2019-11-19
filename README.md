@@ -1,3 +1,5 @@
+![CI Status](https://github.com/rot256/hjul/workflows/Rust/badge.svg)
+
 # Hjul
 
 Hjul is a thin wrapper around `mio-extra` timers. Example usage:
