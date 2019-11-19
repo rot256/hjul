@@ -2,7 +2,7 @@
 
 Hjul is a thin wrapper around `mio-extra` timers. Example usage:
 
-```
+```rust
 use hjul::Runner;
 use std::thread;
 use std::time::Duration;
