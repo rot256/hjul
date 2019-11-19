@@ -187,7 +187,7 @@ impl Drop for Runner {
 impl TimerInner {
     fn stop(&self) {
         if self.pending.swap(false, Ordering::Acquire) {
-            if let Some(tm) = mem::replace(&mut *self.timeout.lock(), None) {
+            if let Some(tm) = self.timeout.lock().take() {
                 self.timer.lock().cancel_timeout(&tm);
             }
         }
