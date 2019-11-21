@@ -14,6 +14,7 @@ mod tests {
     use std::sync::Arc;
     use std::thread;
     use std::time::{Duration, Instant};
+
     use test::Bencher;
 
     /* This test can theoretically fail -- on a VERY slow machine.

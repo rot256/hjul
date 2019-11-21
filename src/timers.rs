@@ -106,16 +106,20 @@ impl Runner {
                     for event in &events {
                         match event.token() {
                             TIMER => {
-                                if let Some(weak) = timer.lock().poll() {
-                                    let weak: Weak<TimerInner> = weak;
-                                    match weak.upgrade() {
-                                        Some(timer) => {
-                                            if timer.pending.swap(false, Ordering::SeqCst) {
-                                                (timer.callback)()
-                                            }
-                                        }
-                                        None => (),
-                                    }
+                                // poll and obtain strong reference to the timer
+                                let timer: Arc<TimerInner> = match timer
+                                    .lock()
+                                    .poll()
+                                    .and_then(|weak: Weak<TimerInner>| weak.upgrade())
+                                {
+                                    Some(v) => v,
+                                    None => continue,
+                                };
+
+                                // note: we need to release all locks before executing the
+                                // callback, since the callback might apply operations to the timer.
+                                if timer.pending.swap(false, Ordering::SeqCst) {
+                                    (timer.callback)()
                                 }
                             }
                             _ => unreachable!(),
