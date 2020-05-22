@@ -1,6 +1,8 @@
 #![crate_name = "hjul"]
-#![feature(test)]
 
+#![cfg_attr(feature = "unstable", feature(test))]
+
+#[cfg(feature = "unstable")]
 extern crate test;
 
 mod timers;
@@ -14,14 +16,15 @@ mod tests {
     use std::sync::Arc;
     use std::thread;
     use std::time::{Duration, Instant};
-
+    
+    #[cfg(feature = "unstable")]
     use test::Bencher;
 
     /* This test can theoretically fail -- on a VERY slow machine.
      */
     #[test]
     fn test_accuracy() {
-        let capacity = 100_000;
+        let capacity = 100;
         let accuracy = Duration::from_millis(100);
         let horrison = Duration::from_millis(10_000);
         let cogs = (horrison.as_nanos() / accuracy.as_nanos()) as usize;
@@ -82,6 +85,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "unstable")]
     #[bench]
     fn bench_reset(b: &mut Bencher) {
         let runner = Runner::new(Duration::from_millis(100), 100, 10);
@@ -89,6 +93,7 @@ mod tests {
         b.iter(|| timer.reset(Duration::from_millis(1000)));
     }
 
+    #[cfg(feature = "unstable")]
     #[bench]
     fn bench_start(b: &mut Bencher) {
         let runner = Runner::new(Duration::from_millis(100), 100, 10);
