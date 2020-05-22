@@ -1,5 +1,4 @@
 #![crate_name = "hjul"]
-
 #![cfg_attr(feature = "unstable", feature(test))]
 
 #[cfg(feature = "unstable")]
@@ -16,7 +15,7 @@ mod tests {
     use std::sync::Arc;
     use std::thread;
     use std::time::{Duration, Instant};
-    
+
     #[cfg(feature = "unstable")]
     use test::Bencher;
 
