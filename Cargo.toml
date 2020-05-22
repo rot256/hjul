@@ -9,7 +9,7 @@ include = [
 ]
 license = "MIT"
 homepage = "https://github.com/rot256/hjul"
-keywords = ["timer", "timer wheel", "mio-extra", "mio", "callback"]
+keywords = ["timer", "timer-wheel", "mio-extra", "mio", "callback"]
 description = """
 Simple and efficient timer abstraction on top of `mio-extra`.
 Every timer is associated with a callback which is executed whenever the timer expires,
