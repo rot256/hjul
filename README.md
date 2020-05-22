@@ -1,4 +1,6 @@
-![CI Status](https://github.com/rot256/hjul/workflows/Rust/badge.svg)
+![Stable Rust CI Status](https://github.com/rot256/hjul/workflows/stable/badge.svg)
+![Beta Rust CI Status](https://github.com/rot256/hjul/workflows/beta/badge.svg)
+![Nightly Rust CI Status](https://github.com/rot256/hjul/workflows/nightly/badge.svg)
 
 # Hjul
 
